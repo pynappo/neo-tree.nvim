@@ -12,16 +12,13 @@ local config = {
   add_blank_line_at_top = false, -- Add a blank line at the top of the tree.
   auto_clean_after_session_restore = false, -- Automatically clean up broken neo-tree buffers saved in sessions
   close_if_last_window = false, -- Close Neo-tree if it is the last window left in the tab
-  -- popup_border_style is for input and confirmation dialogs.
-  -- Configurtaion of floating window is done in the individual source sections.
-  -- "NC" is a special style that works well with NormalNC set
   default_source = "filesystem", -- you can choose a specific source `last` here which indicates the last used source
   enable_diagnostics = true,
   enable_git_status = true,
   enable_modified_markers = true, -- Show markers for files with unsaved changes.
   enable_opened_markers = true,   -- Enable tracking of opened files. Required for `components.name.highlight_opened_files`
   enable_refresh_on_write = true, -- Refresh the tree when a file is written. Only used if `use_libuv_file_watcher` is false.
-  enable_normal_mode_for_inputs = false, -- Enable normal mode for input dialogs.
+  enable_cursor_hijack = false, -- If enabled neotree will keep the cursor on the first letter of the filename when moving in the tree.
   git_status_async = true,
   -- These options are for people with VERY large git repos
   git_status_async_options = {
@@ -37,6 +34,9 @@ local config = {
   log_to_file = false, -- true, false, "/path/to/file.log", use :NeoTreeLogs to show the file
   open_files_in_last_window = true, -- false = open files in top left window
   open_files_do_not_replace_types = { "terminal", "Trouble", "qf", "edgy" }, -- when opening files, do not use windows containing these filetypes or buftypes
+  -- popup_border_style is for input and confirmation dialogs.
+  -- Configurtaion of floating window is done in the individual source sections.
+  -- "NC" is a special style that works well with NormalNC set
   popup_border_style = "NC", -- "double", "none", "rounded", "shadow", "single" or "solid"
   resize_timer_interval = 500, -- in ms, needed for containers to redraw right aligned and faded content
                                -- set to -1 to disable the resize timer entirely
@@ -203,7 +203,18 @@ local config = {
       -- The next two settings are only a fallback, if you use nvim-web-devicons and configure default icons there
       -- then these will never be used.
       default = "*",
-      highlight = "NeoTreeFileIcon"
+      highlight = "NeoTreeFileIcon",
+      provider = function(icon, node, state) -- default icon provider utilizes nvim-web-devicons if available
+        if node.type == "file" or node.type == "terminal" then
+          local success, web_devicons = pcall(require, "nvim-web-devicons")
+          local name = node.type == "terminal" and "terminal" or node.name
+          if success then
+            local devicon, hl = web_devicons.get_icon(name)
+            icon.text = devicon or icon.text
+            icon.highlight = hl or icon.highlight
+          end
+        end
+      end
     },
     modified = {
       symbol = "[+] ",
@@ -237,22 +248,27 @@ local config = {
     -- If you don't want to use these columns, you can set `enabled = false` for each of them individually
     file_size = {
       enabled = true,
+      width = 12, -- width of the column
       required_width = 64, -- min width of window required to show this column
     },
     type = {
       enabled = true,
+      width = 10, -- width of the column
       required_width = 110, -- min width of window required to show this column
     },
     last_modified = {
       enabled = true,
+      width = 20, -- width of the column
       required_width = 88, -- min width of window required to show this column
     },
     created = {
       enabled = false,
+      width = 20, -- width of the column
       required_width = 120, -- min width of window required to show this column
     },
     symlink_target = {
       enabled = false,
+      text_format = " ➛ %s", -- %s will be replaced with the symlink target's path.
     },
   },
   renderers = {
@@ -345,6 +361,9 @@ local config = {
         width = "50%",
       },
       position = "50%", -- 50% means center it
+      title = function (state) -- format the text that appears at the top of a popup window
+        return "Neo-tree " .. state.name:gsub("^%l", string.upper)
+      end,
       -- you can also specify border here, if you want a different setting from
       -- the global popup_border_style.
     },
@@ -368,10 +387,14 @@ local config = {
       -- ["<cr>"] = { "open", config = { expand_nested_files = true } }, -- expand nested file takes precedence
       ["<esc>"] = "cancel", -- close preview or floating neo-tree window
       ["P"] = { "toggle_preview", config = { use_float = true, use_image_nvim = false } },
+      ["<C-f>"] = { "scroll_preview", config = {direction = -10} },
+      ["<C-b>"] = { "scroll_preview", config = {direction = 10} },
       ["l"] = "focus_preview",
       ["S"] = "open_split",
       -- ["S"] = "split_with_window_picker",
       ["s"] = "open_vsplit",
+      -- ["sr"] = "open_rightbelow_vs",
+      -- ["sl"] = "open_leftabove_vs",
       -- ["s"] = "vsplit_with_window_picker",
       ["t"] = "open_tabnew",
       -- ["<cr>"] = "open_drop",
@@ -391,6 +414,7 @@ local config = {
       ["A"] = "add_directory", -- also accepts the config.show_path and config.insert_as options.
       ["d"] = "delete",
       ["r"] = "rename",
+      ["b"] = "rename_basename",
       ["y"] = "copy_to_clipboard",
       ["x"] = "cut_to_clipboard",
       ["p"] = "paste_from_clipboard",
@@ -472,6 +496,9 @@ local config = {
       },
       always_show = { -- remains visible even if other settings would normally hide it
         --".gitignored",
+      },
+      always_show_by_pattern = { -- uses glob style patterns
+        --".env*",
       },
       never_show = { -- remains hidden even if visible is toggled to true, this overrides always_show
         --".DS_Store",

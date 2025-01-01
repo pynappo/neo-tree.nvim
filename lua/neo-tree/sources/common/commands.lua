@@ -664,6 +664,10 @@ M.toggle_preview = function(state)
   Preview.toggle(state)
 end
 
+M.scroll_preview = function(state)
+  Preview.scroll(state)
+end
+
 M.focus_preview = function()
   Preview.focus()
 end
@@ -776,6 +780,22 @@ M.open_vsplit = function(state, toggle_directory)
   open_with_cmd(state, "vsplit", toggle_directory)
 end
 
+---Open file or directory in a right below vertical split of the closest window
+---@param state table The state of the source
+---@param toggle_directory function The function to call to toggle a directory
+---open/closed
+M.open_rightbelow_vs = function(state, toggle_directory)
+  open_with_cmd(state, "rightbelow vs", toggle_directory)
+end
+
+---Open file or directory in a left above vertical split of the closest window
+---@param state table The state of the source
+---@param toggle_directory function The function to call to toggle a directory
+---open/closed
+M.open_leftabove_vs = function(state, toggle_directory)
+  open_with_cmd(state, "leftabove vs", toggle_directory)
+end
+
 ---Open file or directory in a new tab
 ---@param state table The state of the source
 ---@param toggle_directory function The function to call to toggle a directory
@@ -807,6 +827,15 @@ M.rename = function(state, callback)
     return
   end
   fs_actions.rename_node(node.path, callback)
+end
+
+M.rename_basename = function(state, callback)
+  local tree = state.tree
+  local node = tree:get_node()
+  if node.type == "message" then
+    return
+  end
+  fs_actions.rename_node_basename(node.path, callback)
 end
 
 ---Marks potential windows with letters and will open the give node in the picked window.

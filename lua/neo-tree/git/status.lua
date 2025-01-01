@@ -237,7 +237,6 @@ M.status_async = function(path, base, opts)
     end
 
     local job_complete_callback = function()
-      utils.debounce(event_id, nil, nil, nil, utils.debounce_action.COMPLETE_ASYNC_JOB)
       vim.schedule(function()
         events.fire_event(events.GIT_STATUS_CHANGED, {
           git_root = context.git_root,
@@ -256,11 +255,11 @@ M.status_async = function(path, base, opts)
         args = { "-C", git_root, "diff", "--staged", "--name-status", base, "--" },
         enable_recording = false,
         maximium_results = context.max_lines,
-        on_stdout = vim.schedule_wrap(function(err, line, job)
+        on_stdout = function(err, line, job)
           if should_process(err, line, job, "status_async staged error:") then
             table.insert(context.lines, line)
           end
-        end),
+        end,
         on_stderr = function(err, line)
           if err and err > 0 then
             log.error("status_async staged error: ", err, line)
@@ -273,14 +272,14 @@ M.status_async = function(path, base, opts)
         args = { "-C", git_root, "diff", "--name-status" },
         enable_recording = false,
         maximium_results = context.max_lines,
-        on_stdout = vim.schedule_wrap(function(err, line, job)
+        on_stdout = function(err, line, job)
           if should_process(err, line, job, "status_async unstaged error:") then
             if line then
               line = " " .. line
             end
             table.insert(context.lines, line)
           end
-        end),
+        end,
         on_stderr = function(err, line)
           if err and err > 0 then
             log.error("status_async unstaged error: ", err, line)
@@ -293,14 +292,14 @@ M.status_async = function(path, base, opts)
         args = { "-C", git_root, "ls-files", "--exclude-standard", "--others" },
         enable_recording = false,
         maximium_results = context.max_lines,
-        on_stdout = vim.schedule_wrap(function(err, line, job)
+        on_stdout = function(err, line, job)
           if should_process(err, line, job, "status_async untracked error:") then
             if line then
               line = "?	" .. line
             end
             table.insert(context.lines, line)
           end
-        end),
+        end,
         on_stderr = function(err, line)
           if err and err > 0 then
             log.error("status_async untracked error: ", err, line)

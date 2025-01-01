@@ -7,6 +7,7 @@ local file_nesting = require("neo-tree.sources.common.file-nesting")
 local highlights = require("neo-tree.ui.highlights")
 local manager = require("neo-tree.sources.manager")
 local netrw = require("neo-tree.setup.netrw")
+local hijack_cursor = require("neo-tree.sources.common.hijack_cursor")
 
 local M = {}
 
@@ -54,6 +55,7 @@ local define_events = function()
 
   events.define_autocmd_event(events.VIM_AFTER_SESSION_LOAD, { "SessionLoadPost" }, 200)
   events.define_autocmd_event(events.VIM_BUFFER_ADDED, { "BufAdd" }, 200, update_opened_buffers)
+  events.define_autocmd_event(events.VIM_BUFFER_CHANGED, { "BufWritePost" }, 200)
   events.define_autocmd_event(
     events.VIM_BUFFER_DELETED,
     { "BufDelete" },
@@ -195,8 +197,17 @@ M.buffer_enter_event = function()
   end
   last_buffer_enter_filetype = vim.bo.filetype
 
+  -- For all others, make sure another buffer is not hijacking our window
+  -- ..but not if the position is "current"
+  local prior_buf = vim.fn.bufnr("#")
+  if prior_buf < 1 then
+    return
+  end
+  local prior_type = vim.api.nvim_buf_get_option(prior_buf, "filetype")
+
   -- there is nothing more we want to do with floating windows
-  if utils.is_floating() then
+  -- but when prior_type is neo-tree we might need to redirect buffer somewhere else.
+  if utils.is_floating() and prior_type ~= "neo-tree" then
     return
   end
 
@@ -205,14 +216,6 @@ M.buffer_enter_event = function()
     return
   end
 
-  -- For all others, make sure another buffer is not hijacking our window
-  -- ..but not if the position is "current"
-  local prior_buf = vim.fn.bufnr("#")
-  if prior_buf < 1 then
-    return
-  end
-  local winid = vim.api.nvim_get_current_win()
-  local prior_type = vim.api.nvim_buf_get_option(prior_buf, "filetype")
   if prior_type == "neo-tree" then
     local success, position = pcall(vim.api.nvim_buf_get_var, prior_buf, "neo_tree_position")
     if not success then
@@ -305,7 +308,7 @@ M.win_enter_event = function()
               log.warn(message)
               vim.cmd("rightbelow vertical split")
               vim.api.nvim_win_set_width(win_id, state.window.width or 40)
-              vim.cmd("b" .. buf_name)
+              vim.cmd("b " .. buf_name)
             end)
             return
           end
@@ -732,6 +735,10 @@ M.merge_config = function(user_config, is_auto_config)
 
   local rt = utils.get_value(M.config, "resize_timer_interval", 50, true)
   require("neo-tree.ui.renderer").resize_timer_interval = rt
+
+  if M.config.enable_cursor_hijack then
+    hijack_cursor.setup()
+  end
 
   return M.config
 end

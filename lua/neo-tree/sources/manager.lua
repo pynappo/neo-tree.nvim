@@ -39,9 +39,7 @@ local function create_state(tabid, sd, winid)
   state.tabid = tabid
   state.id = winid or tabid
   state.dirty = true
-  state.position = {
-    is = { restorable = false },
-  }
+  state.position = {}
   state.git_base = "HEAD"
   events.fire_event(events.STATE_CREATED, state)
   table.insert(all_states, state)
@@ -53,6 +51,7 @@ M._get_all_states = function()
 end
 
 M._for_each_state = function(source_name, action)
+  M.dispose_invalid_tabs()
   for _, state in ipairs(all_states) do
     if source_name == nil or state.name == source_name then
       action(state)
@@ -351,12 +350,13 @@ M.set_cwd = function(state)
 
   local _, cwd = pcall(vim.fn.getcwd, winid, tabnr)
   if state.path ~= cwd then
+    local path = utils.escape_path_for_cmd(state.path)
     if winid > 0 then
-      vim.cmd("lcd " .. state.path)
+      vim.cmd("lcd " .. path)
     elseif tabnr > 0 then
-      vim.cmd("tcd " .. state.path)
+      vim.cmd("tcd " .. path)
     else
-      vim.cmd("cd " .. state.path)
+      vim.cmd("cd " .. path)
     end
   end
 end
@@ -370,7 +370,9 @@ local dispose_state = function(state)
 end
 
 M.dispose = function(source_name, tabid)
-  for i, state in ipairs(all_states) do
+  -- Iterate in reverse because we are removing items during loop
+  for i = #all_states, 1, -1 do
+    local state = all_states[i]
     if source_name == nil or state.name == source_name then
       if not tabid or tabid == state.tabid then
         log.trace(state.name, " disposing of tab: ", tabid)
@@ -385,7 +387,9 @@ M.dispose_tab = function(tabid)
   if not tabid then
     error("dispose_tab: tabid cannot be nil")
   end
-  for i, state in ipairs(all_states) do
+  -- Iterate in reverse because we are removing items during loop
+  for i = #all_states, 1, -1 do
+    local state = all_states[i]
     if tabid == state.tabid then
       log.trace(state.name, " disposing of tab: ", tabid, state.name)
       dispose_state(state)
@@ -411,7 +415,9 @@ M.dispose_window = function(winid)
   if not winid then
     error("dispose_window: winid cannot be nil")
   end
-  for i, state in ipairs(all_states) do
+  -- Iterate in reverse because we are removing items during loop
+  for i = #all_states, 1, -1 do
+    local state = all_states[i]
     if state.id == winid then
       log.trace(state.name, " disposing of window: ", winid, state.name)
       dispose_state(state)
@@ -525,11 +531,6 @@ M.reveal_current_file = function(source_name, callback, force_cwd)
   log.trace("Revealing current file")
   local state = M.get_state(source_name)
   state.current_position = nil
-
-  -- When events trigger that try to restore the position of the cursor in the tree window,
-  -- we want them to ignore this "iteration" as the user is trying to explicitly focus a
-  -- (potentially) different position/node
-  state.position.is.restorable = false
 
   local path = M.get_path_to_reveal()
   if not path then

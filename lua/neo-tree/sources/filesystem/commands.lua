@@ -29,7 +29,7 @@ M.clear_filter = function(state)
 end
 
 M.copy = function(state)
-  cc.copy(state, utils.wrap(refresh, state))
+  cc.copy(state, utils.wrap(fs.focus_destination_children, state))
 end
 
 ---Marks node as copied, so that it can be pasted somewhere else.
@@ -51,7 +51,7 @@ M.cut_to_clipboard_visual = function(state, selected_nodes)
 end
 
 M.move = function(state)
-  cc.move(state, utils.wrap(refresh, state))
+  cc.move(state, utils.wrap(fs.focus_destination_children, state))
 end
 
 ---Pastes all items from the clipboard to the current directory.
@@ -186,6 +186,12 @@ end
 M.open_split = function(state)
   cc.open_split(state, utils.wrap(fs.toggle_directory, state))
 end
+M.open_rightbelow_vs = function(state)
+  cc.open_rightbelow_vs(state, utils.wrap(fs.toggle_directory, state))
+end
+M.open_leftabove_vs = function(state)
+  cc.open_leftabove_vs(state, utils.wrap(fs.toggle_directory, state))
+end
 M.open_vsplit = function(state)
   cc.open_vsplit(state, utils.wrap(fs.toggle_directory, state))
 end
@@ -216,14 +222,21 @@ M.rename = function(state)
 end
 
 M.set_root = function(state)
-  local tree = state.tree
-  local node = tree:get_node()
-  if node.type == "directory" then
-    if state.search_pattern then
-      fs.reset_search(state, false)
-    end
-    fs._navigate_internal(state, node.id, nil, nil, false)
+  if state.search_pattern then
+    fs.reset_search(state, false)
   end
+
+  local node = state.tree:get_node()
+  while node and node.type ~= "directory" do
+    local parent_id = node:get_parent_id()
+    node = parent_id and state.tree:get_node(parent_id) or nil
+  end
+
+  if not node then
+    return
+  end
+
+  fs._navigate_internal(state, node:get_id(), nil, nil, false)
 end
 
 ---Toggles whether hidden files are shown or not.

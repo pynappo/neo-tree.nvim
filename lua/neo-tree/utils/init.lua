@@ -35,20 +35,25 @@ local diag_severity_to_string = function(severity)
 end
 
 local tracked_functions = {}
+---@enum NeotreeDebounceStrategy
 M.debounce_strategy = {
   CALL_FIRST_AND_LAST = 0,
   CALL_LAST_ONLY = 1,
 }
 
+---@enum NeotreeDebounceAction
 M.debounce_action = {
   START_NORMAL = 0,
   START_ASYNC_JOB = 1,
   COMPLETE_ASYNC_JOB = 2,
 }
 
-local defer_function
--- Part of debounce. Moved out of the function to eliminate memory leaks.
-defer_function = function(id, frequency_in_ms, strategy, action)
+---Part of debounce. Moved out of the function to eliminate memory leaks.
+---@param id string Identifier for the debounce group, such as the function name.
+---@param frequency_in_ms number Miniumum amount of time between invocations of fn.
+---@param strategy NeotreeDebounceStrategy The debounce_strategy to use, determines which calls to fn are not dropped.
+---@param action NeotreeDebounceAction? The debounce_action to use, determines how the function is invoked
+local function defer_function(id, frequency_in_ms, strategy, action)
   tracked_functions[id].in_debounce_period = true
   vim.defer_fn(function()
     local current_data = tracked_functions[id]
@@ -72,7 +77,8 @@ end
 ---@param id string Identifier for the debounce group, such as the function name.
 ---@param fn function Function to be executed.
 ---@param frequency_in_ms number Miniumum amount of time between invocations of fn.
----@param strategy number The debounce_strategy to use, determines which calls to fn are not dropped.
+---@param strategy NeotreeDebounceStrategy The debounce_strategy to use, determines which calls to fn are not dropped.
+---@param action NeotreeDebounceAction? The debounce_action to use, determines how the function is invoked
 M.debounce = function(id, fn, frequency_in_ms, strategy, action)
   local fn_data = tracked_functions[id]
 
@@ -119,8 +125,8 @@ M.debounce = function(id, fn, frequency_in_ms, strategy, action)
   if type(fn) == "function" then
     success, result = pcall(fn)
   end
-  fn_data.fn = nil
   fn = nil
+  fn_data.fn = fn
 
   if not success then
     log.error("debounce ", id, " error: ", result)
@@ -208,7 +214,7 @@ end
 ---Converts a filesize from libuv.stats into a human readable string with appropriate units.
 ---@param size any
 ---@return string
-M.human_size = function (size)
+M.human_size = function(size)
   local human = filesize(size, { output = "string" })
   ---@cast human string
   return human
@@ -233,23 +239,43 @@ M.get_diagnostic_counts = function()
   for ns, _ in pairs(vim.diagnostic.get_namespaces()) do
     for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
       local success, file_name = pcall(vim.api.nvim_buf_get_name, bufnr)
-      -- TODO, remove is_disabled nil check when dropping support for 0.8
-      if
-        success and vim.diagnostic.is_disabled == nil or not vim.diagnostic.is_disabled(bufnr, ns)
-      then
-        for severity, _ in ipairs(vim.diagnostic.severity) do
-          local diagnostics = vim.diagnostic.get(bufnr, { namespace = ns, severity = severity })
+      if success then
+        -- TODO: remove is_disabled check when dropping support for 0.8
+        local enabled
+        if vim.diagnostic.is_enabled then
+          enabled = vim.diagnostic.is_enabled({ bufnr = bufnr, ns_id = ns })
+        elseif vim.diagnostic.is_disabled then
+          enabled = not vim.diagnostic.is_disabled(bufnr, ns)
+        else
+          enabled = true
+        end
 
-          if #diagnostics > 0 then
-            local severity_string = diag_severity_to_string(severity)
-            if lookup[file_name] == nil then
-              lookup[file_name] = {
-                severity_number = severity,
-                severity_string = severity_string,
-              }
-            end
-            if severity_string ~= nil then
-              lookup[file_name][severity_string] = #diagnostics
+        if enabled then
+          for severity, _ in ipairs(vim.diagnostic.severity) do
+            local diagnostics = vim.diagnostic.get(bufnr, { namespace = ns, severity = severity })
+
+            if #diagnostics > 0 then
+              local severity_string = diag_severity_to_string(severity)
+              -- Get or create the entry for this file
+              local entry = lookup[file_name]
+              if entry == nil then
+                entry = {
+                  severity_number = severity,
+                  severity_string = severity_string,
+                }
+                lookup[file_name] = entry
+              end
+              -- Set the count for this diagnostic type
+              if severity_string ~= nil then
+                entry[severity_string] = #diagnostics
+              end
+
+              -- Set the overall severity to the most severe so far
+              -- Error = 1, Warn = 2, Info = 3, Hint = 4
+              if severity < entry.severity_number then
+                entry.severity_number = severity
+                entry.severity_string = severity_string
+              end
             end
           end
         end
@@ -355,12 +381,12 @@ M.get_inner_win_width = function(winid)
 end
 
 local stat_providers = {
-  default = function (node)
+  default = function(node)
     return vim.loop.fs_stat(node.path)
   end,
 }
 
---- Gets the statics for a node in the file system. The `stat` object will be cached 
+--- Gets the statics for a node in the file system. The `stat` object will be cached
 --- for the lifetime of the node.
 ---
 ---@param node table The Nui TreeNode node to get the stats for.
@@ -373,7 +399,7 @@ local stat_providers = {
 --- @field birthtime StatTime
 --- @field mtime StatTime
 --- @field size number
-M.get_stat = function (node)
+M.get_stat = function(node)
   if node.stat == nil then
     local provider = stat_providers[node.stat_provider or "default"]
     local success, stat = pcall(provider, node)
@@ -385,7 +411,7 @@ end
 ---Register a function to provide stats for a node.
 ---@param name string The name of the stat provider.
 ---@param func function The function to call to get the stats.
-M.register_stat_provider = function (name, func)
+M.register_stat_provider = function(name, func)
   stat_providers[name] = func
   log.debug("Registered stat provider", name)
 end
@@ -491,6 +517,14 @@ M.is_floating = function(win_id)
   return false
 end
 
+M.is_winfixbuf = function(win_id)
+  if vim.fn.exists("&winfixbuf") == 1 then
+    win_id = win_id or vim.api.nvim_get_current_win()
+    return vim.api.nvim_get_option_value("winfixbuf", { win = win_id })
+  end
+  return false
+end
+
 ---Evaluates the value of <afile>, which comes from an autocmd event, and determines if it
 ---is a valid file or some sort of utility buffer like quickfix or neo-tree itself.
 ---@param afile string The path or relative path to the file.
@@ -548,7 +582,7 @@ M.map = function(tbl, fn)
   return t
 end
 
-M.get_appropriate_window = function(state)
+M.get_appropriate_window = function(state, ignore_winfixbuf)
   -- Avoid triggering autocommands when switching windows
   local eventignore = vim.o.eventignore
   vim.o.eventignore = "all"
@@ -562,7 +596,7 @@ M.get_appropriate_window = function(state)
   local ignore = M.list_to_dict(ignore_ft)
   ignore["neo-tree"] = true
   if nt.config.open_files_in_last_window then
-    local prior_window = nt.get_prior_window(ignore)
+    local prior_window = nt.get_prior_window(ignore, ignore_winfixbuf)
     if prior_window > 0 then
       local success = pcall(vim.api.nvim_set_current_win, prior_window)
       if success then
@@ -582,6 +616,9 @@ M.get_appropriate_window = function(state)
   while attempts < 5 and not suitable_window_found do
     local bt = vim.bo.buftype or "normal"
     if ignore[vim.bo.filetype] or ignore[bt] or M.is_floating() then
+      attempts = attempts + 1
+      vim.cmd("wincmd w")
+    elseif ignore_winfixbuf and M.is_winfixbuf() then
       attempts = attempts + 1
       vim.cmd("wincmd w")
     else
@@ -625,6 +662,28 @@ M.resolve_width = function(width)
   return math.floor(width)
 end
 
+M.force_new_split = function(current_position, escaped_path)
+  local result, err
+  local split_command = "vsplit"
+  -- respect window position in user config when Neo-tree is the only window
+  if current_position == "left" then
+    split_command = "rightbelow vs"
+  elseif current_position == "right" then
+    split_command = "leftabove vs"
+  end
+  if escaped_path == M.escape_path_for_cmd("[No Name]") then
+    -- vim's default behavior is to overwrite [No Name] buffers.
+    -- We need to split first and then open the path to workaround this behavior.
+    result, err = pcall(vim.cmd, split_command)
+    if result then
+      vim.cmd.edit(escaped_path)
+    end
+  else
+    result, err = pcall(vim.cmd, split_command .. " " .. escaped_path)
+  end
+  return result, err
+end
+
 ---Open file in the appropriate window.
 ---@param state table The state of the source
 ---@param path string The file to open
@@ -632,12 +691,13 @@ end
 ---@param bufnr number|nil The buffer number to open
 M.open_file = function(state, path, open_cmd, bufnr)
   open_cmd = open_cmd or "edit"
-    -- If the file is already open, switch to it.
+  -- If the file is already open, switch to it.
   bufnr = bufnr or M.find_buffer_by_name(path)
   if bufnr <= 0 then
     bufnr = nil
   else
-    local buf_cmd_lookup = { edit = "b", e = "b", split = "sb", sp = "sb", vsplit = "vert sb", vs = "vert sb" }
+    local buf_cmd_lookup =
+      { edit = "b", e = "b", split = "sb", sp = "sb", vsplit = "vert sb", vs = "vert sb" }
     local cmd_for_buf = buf_cmd_lookup[open_cmd]
     if cmd_for_buf then
       open_cmd = cmd_for_buf
@@ -647,7 +707,7 @@ M.open_file = function(state, path, open_cmd, bufnr)
   end
 
   if M.truthy(path) then
-    local escaped_path = M.escape_path(path)
+    local escaped_path = M.escape_path_for_cmd(path)
     local bufnr_or_path = bufnr or escaped_path
     local events = require("neo-tree.events")
     local result = true
@@ -675,26 +735,22 @@ M.open_file = function(state, path, open_cmd, bufnr)
           width = M.get_value(state, "window.width", 40, false)
           width = M.resolve_width(width)
         end
-
-        local split_command = "vsplit"
-        -- respect window position in user config when Neo-tree is the only window
-        if state.current_position == "left" then
-          split_command = "rightbelow vs"
-        elseif state.current_position == "right" then
-          split_command = "leftabove vs"
-        end
-        if path == "[No Name]" then
-          result, err = pcall(vim.cmd, split_command)
-          if result then
-            vim.cmd("b" .. bufnr)
-          end
-        else
-          result, err = pcall(vim.cmd, split_command .. " " .. escaped_path)
-        end
-
+        result, err = M.force_new_split(state.current_position, escaped_path)
         vim.api.nvim_win_set_width(winid, width)
       else
         result, err = pcall(vim.cmd, open_cmd .. " " .. bufnr_or_path)
+      end
+    end
+    if not result and string.find(err or "", "winfixbuf") and M.is_winfixbuf() then
+      local winid, is_neo_tree_window = M.get_appropriate_window(state, true)
+      -- Rescan window list to find a window that is not winfixbuf.
+      -- If found, retry executing command in that window,
+      -- otherwise, all windows are either neo-tree or winfixbuf so we make a new split.
+      if not is_neo_tree_window and not M.is_winfixbuf(winid) then
+        vim.api.nvim_set_current_win(winid)
+        result, err = pcall(vim.cmd, open_cmd .. " " .. bufnr_or_path)
+      else
+        result, err = M.force_new_split(state.current_position, escaped_path)
       end
     end
     if result or err == "Vim(edit):E325: ATTENTION" then
@@ -744,6 +800,11 @@ M.normalize_path = function(path)
   if M.is_windows then
     -- normalize the drive letter to uppercase
     path = path:sub(1, 1):upper() .. path:sub(2)
+    -- Turn mixed forward and back slashes into all forward slashes
+    -- using NeoVim's logic
+    path = vim.fs.normalize(path)
+    -- Now use backslashes, as expected by the rest of Neo-Tree's code
+    path = path:gsub("/", M.path_separator)
   end
   return path
 end
@@ -978,10 +1039,33 @@ M.windowize_path = function(path)
   return path:gsub("/", "\\")
 end
 
-M.escape_path = function(path)
+---Escapes a path primarily relying on `vim.fn.fnameescape`. This function should
+---only be used when preparing a path to be used in a vim command, such as `:e`.
+---
+---For Windows systems, this function handles punctuation characters that will
+---be escaped, but may appear at the beginning of a path segment. For example,
+---the path `C:\foo\(bar)\baz.txt` (where foo, (bar), and baz.txt are segments)
+---will remain unchanged when escaped by `fnaemescape` on a Windows system.
+---However, if that string is used to edit a file with `:e`, `:b`, etc., the open
+---parenthesis will be treated as an escaped character and the path separator will
+---be lost.
+---
+---For more details, see issue #889 when this function was introduced, and further
+---discussions in #1264, #1352, and #1448.
+---@param path string
+---@return string
+M.escape_path_for_cmd = function(path)
   local escaped_path = vim.fn.fnameescape(path)
   if M.is_windows then
-    escaped_path = escaped_path:gsub("\\", "/"):gsub("/ ", " ")
+    -- there is too much history to this logic to capture in a reasonable comment.
+    -- essentially, the following logic adds a number of `\` depending on the leading
+    -- character in a path segment. see #1264, #1352, and #1448 for more info.
+    local need_extra_esc = path:find("[%[%]`%$~]")
+    local esc = need_extra_esc and "\\\\" or "\\"
+    escaped_path = escaped_path:gsub("\\[%(%)%^&;]", esc .. "%1")
+    if need_extra_esc then
+      escaped_path = escaped_path:gsub("\\\\['` ]", "\\%1")
+    end
   end
   return escaped_path
 end
@@ -1177,6 +1261,36 @@ M.brace_expand = function(s)
     end
   end
   return result
+end
+
+---Indexes a table that uses paths as keys. Case-insensitive logic is used when
+---running on Windows.
+---
+---Consideration should be taken before using this function, because it is a
+---bit expensive on Windows. However, this function helps when trying to index
+---with absolute path keys, which can have inconsistent casing on Windows (such
+---as with drive letters).
+---@param tbl table
+---@param key string
+---@return unknown
+M.index_by_path = function(tbl, key)
+  local value = tbl[key]
+  if value ~= nil then
+    return value
+  end
+
+  -- on windows, paths that differ only by case are considered equal
+  -- TODO: we should optimize this, see discussion in #1353
+  if M.is_windows then
+    local key_lower = key:lower()
+    for k, v in pairs(tbl) do
+      if key_lower == k:lower() then
+        return v
+      end
+    end
+  end
+
+  return value
 end
 
 return M

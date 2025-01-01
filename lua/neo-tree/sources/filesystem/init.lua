@@ -13,7 +13,7 @@ local glob = require("neo-tree.sources.filesystem.lib.globtopattern")
 
 local M = {
   name = "filesystem",
-  display_name = " 󰉓 Files "
+  display_name = " 󰉓 Files ",
 }
 
 local wrap = function(func)
@@ -30,7 +30,7 @@ local follow_internal = function(callback, force_show, async)
   if vim.bo.filetype == "neo-tree" or vim.bo.filetype == "neo-tree-popup" then
     return false
   end
-  local path_to_reveal = manager.get_path_to_reveal()
+  local path_to_reveal = utils.normalize_path(manager.get_path_to_reveal() or "")
   if not utils.truthy(path_to_reveal) then
     return false
   end
@@ -85,7 +85,6 @@ local follow_internal = function(callback, force_show, async)
     end
   end
 
-  state.position.is.restorable = false -- we will handle setting cursor position here
   fs_scan.get_items(state, nil, path_to_reveal, function()
     show_only_explicitly_opened()
     renderer.focus_node(state, path_to_reveal, true)
@@ -120,6 +119,7 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
     log.debug("navigate_internal: path is nil, using cwd")
     path = manager.get_cwd(state)
   end
+  path = utils.normalize_path(path)
   if path ~= state.path then
     log.debug("navigate_internal: path changed from ", state.path, " to ", path)
     state.path = path
@@ -128,12 +128,7 @@ M._navigate_internal = function(state, path, path_to_reveal, callback, async)
 
   if path_to_reveal then
     renderer.position.set(state, path_to_reveal)
-    log.debug(
-      "navigate_internal: in path_to_reveal, state.position is ",
-      state.position.node_id,
-      ", restorable = ",
-      state.position.is.restorable
-    )
+    log.debug("navigate_internal: in path_to_reveal, state.position=", state.position.node_id)
     fs_scan.get_items(state, nil, path_to_reveal, callback)
   else
     local is_current = state.current_position == "current"
@@ -174,7 +169,7 @@ M.navigate = function(state, path, path_to_reveal, callback, async)
   log.trace("navigate", path, path_to_reveal, async)
   utils.debounce("filesystem_navigate", function()
     M._navigate_internal(state, path, path_to_reveal, callback, async)
-  end, utils.debounce_strategy.CALL_FIRST_AND_LAST, 100)
+  end, 100, utils.debounce_strategy.CALL_FIRST_AND_LAST)
 end
 
 M.reset_search = function(state, refresh, open_current_node)
@@ -254,6 +249,10 @@ M.show_new_children = function(state, node_or_path)
   M.navigate(state, nil, node_or_path)
 end
 
+M.focus_destination_children = function(state, move_from, destination)
+  return M.show_new_children(state, destination)
+end
+
 ---Configures the plugin, should be called before the plugin is used.
 ---@param config table Configuration table containing any keys that the user
 --wants to change from the defaults. May be empty to accept default values.
@@ -261,7 +260,7 @@ M.setup = function(config, global_config)
   config.filtered_items = config.filtered_items or {}
   config.enable_git_status = global_config.enable_git_status
 
-  for _, key in ipairs({ "hide_by_pattern", "never_show_by_pattern" }) do
+  for _, key in ipairs({ "hide_by_pattern", "always_show_by_pattern", "never_show_by_pattern" }) do
     local list = config.filtered_items[key]
     if type(list) == "table" then
       for i, pattern in ipairs(list) do
@@ -423,13 +422,13 @@ M.toggle_directory = function(state, node, path_to_reveal, skip_redraw, recursiv
 end
 
 M.prefetcher = {
-  prefetch = function (state, node)
+  prefetch = function(state, node)
     log.debug("Running fs prefetch for: " .. node:get_id())
     fs_scan.get_dir_items_async(state, node:get_id(), true)
   end,
-  should_prefetch = function (node)
+  should_prefetch = function(node)
     return not node.loaded
-  end
+  end,
 }
 
 return M

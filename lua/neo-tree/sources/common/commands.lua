@@ -3,6 +3,7 @@
 local vim = vim
 local fs_actions = require("neo-tree.sources.filesystem.lib.fs_actions")
 local utils = require("neo-tree.utils")
+local git = require("neo-tree.git")
 local renderer = require("neo-tree.ui.renderer")
 local events = require("neo-tree.events")
 local inputs = require("neo-tree.ui.inputs")
@@ -296,8 +297,61 @@ M.git_add_all = function(state)
   events.fire_event(events.GIT_EVENT)
 end
 
+--- Runs the prepare-commit-msg hook and returns the message parsed from COMMIT_EDITMSG if available.
+---@return string? commit_message Returns the commit message if present, else nil
+local prepare_commit_msg_hook = function(state)
+  local repo_root = git.get_repository_root(state.path)
+  if not repo_root then
+    return nil
+  end
+
+  ---Craft a command starting with `git -C repo_root`
+  ---@param args string[] args to craft a git command
+  ---@return string[] git_cmd the git command outputted
+  local git_cmd = function(args)
+    return { "git", "-C", repo_root, unpack(args) }
+  end
+  local find_hooks_cmd = git_cmd({ "rev-parse", "--git-path", "hooks" })
+  local hooks_dir = vim.fn.systemlist(find_hooks_cmd)[1]
+  local prepare_commit_msg_hook = utils.path_join(repo_root, hooks_dir, "prepare-commit-msg")
+  if vim.uv.fs_stat(prepare_commit_msg_hook) == nil then
+    return nil
+  end
+
+  -- TODO: make async?
+  vim.notify("[neo-tree]: running prepare-commit-msg git hook", vim.log.levels.INFO)
+  local commit_editmsg_path = utils.path_join(repo_root, ".git", "COMMIT_EDITMSG")
+  local run_hook_cmd = git_cmd({ "hook", "run", "prepare-commit-msg", "--", commit_editmsg_path })
+  local result = vim.fn.systemlist(run_hook_cmd)
+  if vim.v.shell_error ~= 0 or (#result > 0 and vim.startswith(result[1], "fatal:")) then
+    return nil
+  end
+
+  if vim.fn.filereadable(commit_editmsg_path) == 0 then
+    return nil
+  end
+
+  local commit_message = {}
+  ---@type string[]
+  local lines = vim.fn.readfile(commit_editmsg_path)
+  -- add lines until first empty or first comment
+  for _, line in ipairs(lines) do
+    if vim.startswith(line, "#") or vim.trim(line) == "" then
+      break
+    end
+    table.insert(commit_message, line)
+  end
+  -- TODO: figure out what to do with multi-line/really long commit messages.
+  return table.concat(commit_message, "\n")
+end
+
 M.git_commit = function(state, and_push)
+  local prepared_commit_msg = prepare_commit_msg_hook(state)
+
   local width = vim.fn.winwidth(0) - 2
+  if prepared_commit_msg then
+    width = math.min(vim.o.columns - 4, vim.api.nvim_strwidth(prepared_commit_msg))
+  end
   local row = vim.api.nvim_win_get_height(0) - 3
   local popup_options = {
     relative = "win",
@@ -308,7 +362,7 @@ M.git_commit = function(state, and_push)
     size = width,
   }
 
-  inputs.input("Commit message: ", "", function(msg)
+  inputs.input("Commit message: ", prepared_commit_msg or "", function(msg)
     local cmd = { "git", "commit", "-m", msg }
     local title = "git commit"
     local result = vim.fn.systemlist(cmd)

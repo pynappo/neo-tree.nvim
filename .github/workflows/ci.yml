@@ -22,19 +22,12 @@ jobs:
           args: --color always --check lua/
 
   plenary-tests:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
-            rev: nightly/nvim-linux-x86_64.tar.gz
-          - os: ubuntu-22.04
-            rev: v0.8.3/nvim-linux64.tar.gz
-          - os: ubuntu-22.04
-            rev: v0.9.5/nvim-linux64.tar.gz
-          - os: ubuntu-22.04
-            rev: v0.10.4/nvim-linux-x86_64.tar.gz
+          - neovim: [v0.8.3/nvim-linux64.tar.gz, v0.9.5/nvim-linux64.tar.gz, v0.10.4/nvim-linux-x86_64.tar.gz, nightly/nvim-linux-x86_64.tar.gz]
     steps:
       - uses: actions/checkout@v4
       - run: date +%F > todays-date
@@ -42,7 +35,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: build
-          key: ${{ runner.os }}-${{ matrix.rev }}-${{ hashFiles('todays-date') }}
+          key: ${{ matrix.rev }}-${{ hashFiles('todays-date') }}
+
       - name: Prepare
         run: |
           test -d build || {

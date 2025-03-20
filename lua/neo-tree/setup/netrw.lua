@@ -9,7 +9,6 @@ local get_position = function(source_name)
 end
 
 M.get_hijack_behavior = function()
-  nt.ensure_config()
   local option = "filesystem.hijack_netrw_behavior"
   local hijack_behavior = utils.get_value(nt.config, option, "open_default", true)
   if hijack_behavior == "disabled" then
@@ -24,12 +23,18 @@ M.get_hijack_behavior = function()
   end
 end
 
+local disabled_netrw = false
 ---@param path string? Path to hijack (sometimes bufname doesn't set in time)
 ---@return boolean hijacked Whether the hijack was successful
 M.hijack = function(path)
+  nt.ensure_config()
   local hijack_behavior = M.get_hijack_behavior()
+
   if hijack_behavior == "disabled" then
     return false
+  elseif not disabled_netrw then
+    vim.cmd("silent! autocmd! FileExplorer *")
+    disabled_netrw = true
   end
 
   -- ensure this is a directory

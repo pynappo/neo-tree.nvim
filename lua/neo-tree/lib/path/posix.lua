@@ -32,6 +32,7 @@ function Path:new(...)
   setmetatable(o, self)
   self.__index = self
   o.unnormalized = { ... }
+  o.dirty = #o.unnormalized > 0
   o._cache = {}
   return o
 end
@@ -41,22 +42,49 @@ function Path:copy()
   return Path:new()
 end
 
+---@param b neotree.Pathish
 function Path:__div(b)
-  if getmetatable(b) == Path then
-    ---@cast b neotree.Path
-    return Path:new(b)
-  end
-  if type(b) == "string" then
-    return Path:new(tostring(self), b)
-  end
+  return Path:new(self, b)
 end
 
 function Path.__tostring(self)
   self:normalize()
   if not self._cache.string then
-    self._cache.string = self.root .. table.concat(self, utils.path_separator)
+    self._cache.string = (self.root or "") .. table.concat(self, utils.path_separator)
   end
   return self._cache.string
+end
+
+---Normalizes the path
+---@return self neotree.Path
+function Path:normalize()
+  if not self.dirty then
+    return self
+  end
+
+  for _, segment in ipairs(self.unnormalized) do
+    if type(segment) == "string" then
+      self:_append_string(segment)
+    else
+      assert(type(segment) == "table")
+      if getmetatable(segment) == Path then
+        ---@cast segment neotree.Path
+        segment:normalize()
+        if segment.root then
+          self.root = segment.root
+        end
+      end
+      for _, part in ipairs(segment) do
+        self:_append_string(part)
+      end
+    end
+  end
+
+  self._cache = {}
+  self.unnormalized = {}
+  self.dirty = false
+
+  return self
 end
 
 ---@param str string
@@ -78,46 +106,22 @@ local extract_prefix = function(str)
   return nil, nil
 end
 
----Normalizes the path
----@return self neotree.Path
-function Path:normalize()
-  if not self.dirty then
-    return self
-  end
-
-  for _, segment in ipairs(self.unnormalized) do
-    if type(segment) == "string" then
-      segment = { segment }
-    end
-    assert(type(segment) == "table")
-    if getmetatable(segment) == Path then
-      ---@cast segment neotree.Path
-      segment:normalize()
-      if segment.root then
-        self.root = segment.root
-      end
-    end
-    for _, part in ipairs(segment) do
-      -- normalize separators
-
-      -- normalize paths
-    end
-  end
-
-  self.unnormalized = {}
-  self.dirty = false
-
-  return self
-end
-
 ---@param str string
 ---@param relative boolean? Whether the str is known to be relative to this path or not
 ---@param fast boolean? Whether we should do some slow operations like normalizing path separators or not
 function Path:_append_string(str, relative, fast)
-  local prefix, rest
-  if relative == nil then
+  local prefix
+  if relative == nil or not relative then
     prefix = extract_prefix(str)
-    relative = prefix ~= nil
+    if prefix then
+      relative = false
+      str = str:sub(#prefix + 1)
+      -- reset to the prefix
+      self.root = prefix
+      for i = 1, #self do
+        self[i] = nil
+      end
+    end
   end
 
   if utils.is_windows and not fast then
@@ -125,19 +129,27 @@ function Path:_append_string(str, relative, fast)
   end
 
   local segment_iter = vim.gsplit(str, utils.is_windows and "\\" or "/", { plain = true })
-  if relative then
-    for segment in segment_iter do
-      if segment == ".." then
+  for segment in segment_iter do
+    if segment == "" then
+    elseif segment == ".." then
+      if self.root then
+        -- remove a segment
         self[#self] = nil
-      elseif segment == "." then
-        -- do nothing
       else
-        self[#self + 1] = segment
+        local prev = self[#self]
+        if #self == 0 or prev == ".." then
+          -- add a ..
+          self[#self + 1] = segment
+        elseif prev == "." then
+          self[#self] = segment
+        else
+          -- remove the previous relative segment
+          self[#self] = nil
+        end
       end
-    end
-  else
-    self:clear()
-    for segment in segment_iter do
+    elseif segment == "." and #self > 0 then
+      -- do nothing
+    else
       self[#self + 1] = segment
     end
   end
@@ -166,12 +178,11 @@ else
   fast_list_extend = vim.list_extend
 end
 
----@vararg string paths
----@return neotree.Path self
-function Path:join(...)
-  fast_list_extend(self.unnormalized, { ... })
-  self.dirty = true
-  return self
+---@param base neotree.Pathish
+---@vararg neotree.Pathish paths
+---@return neotree.Path new_joined_path
+function Path.join(base, ...)
+  return Path:new(base, ...)
 end
 
 ---@return string
@@ -179,13 +190,12 @@ function Path:parent()
   return tostring(self):match(self.sep)
 end
 
----@param levels_up integer? How many levels up to go, default 1 level up
----@return neotree.Path
+---@return neotree.Path? new_parent_path
 function Path:parent_path(levels_up)
-  self:normalize()
-  return Path:new(fast_list_extend({}, self, 0, #self - (levels_up or 1)))
+  if #self == 0 then
+    return nil
+  end
+  return Path:new(fast_list_extend({ self.root }, self, 0, #self - (levels_up or 1)))
 end
-
-function Path:up(levels) end
 
 return Path

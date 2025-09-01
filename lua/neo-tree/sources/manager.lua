@@ -9,6 +9,7 @@ local inputs = require("neo-tree.ui.inputs")
 local events = require("neo-tree.events")
 local log = require("neo-tree.log")
 local fs_watch = require("neo-tree.sources.filesystem.lib.fs_watch")
+local sort_field_providers = require("neo-tree.sources.common.sorters.field-providers")
 
 local M = {}
 ---@type table<string, neotree.SourceData>
@@ -114,10 +115,8 @@ end
 ---@class (exact) neotree.StateWithTree : neotree.State
 ---@field tree NuiTree
 
-local a = {}
-
 ---@param tabid integer
----@param sd table
+---@param sd neotree.SourceData
 ---@param winid integer?
 ---@return neotree.State
 local function create_state(tabid, sd, winid)

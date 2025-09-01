@@ -12,6 +12,7 @@
 
 ---@class neotree.Config.Source
 ---@field window neotree.Config.Window?
+---@field default_sort neotree.sources.common.sorters.FieldProviderNames?
 ---@field renderers neotree.Config.Renderers?
 ---@field commands table<string, neotree.Config.TreeCommand?>?
 ---@field before_render fun(state: neotree.State)?

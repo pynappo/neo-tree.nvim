@@ -10,6 +10,7 @@ local help = require("neo-tree.sources.common.help")
 local Preview = require("neo-tree.sources.common.preview")
 local async = require("plenary.async")
 local node_expander = require("neo-tree.sources.common.node_expander")
+local sort_field_providers = require("neo-tree.sources.common.sorters.field-providers")
 
 ---@alias neotree.TreeCommandNormal fun(state: neotree.StateWithTree, ...: any)
 ---@alias neotree.TreeCommandVisual fun(state: neotree.StateWithTree, selected_nodes: NuiTree.Node[], ...: any)
@@ -475,90 +476,43 @@ end
 
 M.order_by_created = function(state)
   set_sort(state, "Created")
-  state.sort_field_provider = function(node)
-    local stat = utils.get_stat(node)
-    return stat.birthtime and stat.birthtime.sec or 0
-  end
+  state.sort_field_provider = sort_field_providers.created()
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_modified = function(state)
   set_sort(state, "Last Modified")
-  state.sort_field_provider = function(node)
-    local stat = utils.get_stat(node)
-    return stat.mtime and stat.mtime.sec or 0
-  end
+  state.sort_field_provider = sort_field_providers.modified()
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_name = function(state)
   set_sort(state, "Name")
-  local config = require("neo-tree").config
-  if config.sort_case_insensitive then
-    state.sort_field_provider = function(node)
-      return node.path:lower()
-    end
-  else
-    state.sort_field_provider = function(node)
-      return node.path
-    end
-  end
+  state.sort_field_provider = sort_field_providers.name()
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_size = function(state)
   set_sort(state, "Size")
-  state.sort_field_provider = function(node)
-    local stat = utils.get_stat(node)
-    return stat.size or 0
-  end
+  state.sort_field_provider = sort_field_providers.size()
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_type = function(state)
   set_sort(state, "Type")
-  state.sort_field_provider = function(node)
-    return node.ext or node.type
-  end
+  state.sort_field_provider = sort_field_providers.type()
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_git_status = function(state)
   set_sort(state, "Git Status")
-
-  state.sort_field_provider = function(node)
-    local git_status_lookup = state.git_status_lookup or {}
-    local git_status = git_status_lookup[node.path]
-    if git_status then
-      return git_status
-    end
-
-    if node.filtered_by and node.filtered_by.gitignored then
-      return "!!"
-    else
-      return ""
-    end
-  end
-
+  state.sort_field_provider = sort_field_providers.git_status(state)
   require("neo-tree.sources.manager").refresh(state.name)
 end
 
 M.order_by_diagnostics = function(state)
   set_sort(state, "Diagnostics")
-
-  state.sort_field_provider = function(node)
-    local diag = state.diagnostics_lookup or {}
-    local diagnostics = diag[node.path]
-    if not diagnostics then
-      return 0
-    end
-    if not diagnostics.severity_number then
-      return 0
-    end
-    -- lower severity number means higher severity
-    return 5 - diagnostics.severity_number
-  end
-
+  state.sort_field_provider = sort_field_providers.diagnostics(state)
   require("neo-tree.sources.manager").refresh(state.name)
 end
 

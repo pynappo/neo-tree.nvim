@@ -1,6 +1,7 @@
 local file_nesting = require("neo-tree.sources.common.file-nesting")
 local utils = require("neo-tree.utils")
 local log = require("neo-tree.log")
+local sort_field_providers = require("neo-tree.sources.common.sorters.field-providers")
 local uv = vim.uv or vim.loop
 
 ---@type neotree.Config.SortFunction
@@ -46,7 +47,7 @@ local function make_sort_function(field_provider, fallback_sort_function, direct
 end
 
 ---@param func neotree.Config.SortFunction?
----@return boolean
+---@return boolean valid
 local function sort_function_is_valid(func)
   if func == nil then
     return false
@@ -91,10 +92,19 @@ local function deep_sort(tbl, sort_func, field_provider, direction)
   end
 end
 
+---@generic T : function
+---@param fn T?
+---@return T|fun():nil
+local safe_callable = function(fn)
+  return fn or function() end
+end
+
+---@param tbl table
 ---@param state neotree.State
 local advanced_sort = function(tbl, state)
   local sort_func = state.sort_function_override
   local field_provider = state.sort_field_provider
+    or safe_callable(sort_field_providers[state.default_sort])(state)
   local direction = state.sort and state.sort.direction or 1
   deep_sort(tbl, sort_func, field_provider, direction)
 end

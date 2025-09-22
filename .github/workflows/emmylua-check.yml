@@ -28,4 +28,4 @@ jobs:
     - name: Run lua-language-server check
       run: |
         mise use neovim
-        NEOTREE_LUARC=".github/workflows/.luarc-${{ matrix.lua }}.json" mise run luals-check
+        NEOTREE_LUARC=".github/workflows/.luarc-${{ matrix.lua }}.json" mise run emmylua-check

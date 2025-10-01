@@ -5,6 +5,15 @@ local utils = require("neo-tree.utils")
 local log = require("neo-tree.log")
 local glob = require("neo-tree.sources.filesystem.lib.lua-glob")
 
+---@class neotree.sources.filesystem.Ignore.CacheEntry
+---@field stat uv.fs_stat.result
+---@field glob neotree.lib.LuaGlob
+
+---@type table<string, neotree.sources.filesystem.Ignore.CacheEntry>
+local glob_cache = setmetatable({}, {
+  __mode = "kv",
+})
+
 ---@class neotree.sources.filesystem.Ignore.Rule
 ---@field root string
 ---@field pattern string
@@ -13,6 +22,11 @@ local glob = require("neo-tree.sources.filesystem.lib.lua-glob")
 ---@param path string
 ---@return neotree.lib.LuaGlob
 local file_to_glob = function(path)
+  local stat = assert(uv.fs_stat(path))
+  local cached = glob_cache[path]
+  if cached and cached.stat.mtime.nsec == stat.mtime.nsec then
+    return cached.glob
+  end
   ---@type string[]
   local lines = {}
   for line in io.lines(path) do
@@ -22,8 +36,9 @@ local file_to_glob = function(path)
     end
   end
 
-  local parent_path = assert(utils.split_path(path))
-  return glob.gitignore(lines, {
+  local parent_path = assert(utils.split_path(path), "no parent found for " .. path)
+
+  local g = glob.gitignore(lines, {
     root = parent_path,
   }, {
     type = function(p)
@@ -37,6 +52,13 @@ local file_to_glob = function(path)
       return nil
     end,
   })
+
+  glob_cache[stat.ino] = {
+    stat = stat,
+    glob = g,
+  }
+
+  return g
 end
 
 ---@param state neotree.State
@@ -86,7 +108,7 @@ M.mark_ignored = function(state, items)
       if not item.filtered_by or not item.filtered_by.ignore_file then
         for _, ignorer in ipairs(folder_ignorers) do
           local parser = ignorer.parser
-          local ignored = parser:check(item.path)
+          local ignored = parser:check(item.path, true)
           if ignored ~= nil then
             item.filtered_by = item.filtered_by or {}
             item.filtered_by.ignore_file = ignorer.path

@@ -225,7 +225,7 @@ end
 ---@param pat string
 ---@param base? string
 function M:addPattern(pat, base)
-  base = base or self.options.root or ""
+  base = base or ""
   if self.options.ignoreCase then
     base = base:lower()
   end
@@ -462,8 +462,9 @@ local Statuses = {
 }
 
 ---@param paths string[]
+---@param exact boolean? whether a pattern matches the entire string or just the initial part of it
 ---@return neotree.lib.LuaGlob.Status
-function M:status(paths)
+function M:status(paths, exact)
   local status = "unknown"
 
   local function statusWithPatterns(patterns, start)
@@ -481,11 +482,8 @@ function M:status(paths)
   end
 
   if self.options.asGitIgnore then
-    for i = 1, #paths do
+    for i = not exact and 1 or #paths, #paths do
       local base = table.concat(paths, "/", 1, i - 1)
-      if self.options.root then
-        base = utils.path_join(self.options.root, base)
-      end
       local patternKey = base
       if self.options.ignoreCase then
         patternKey = patternKey:lower()
@@ -516,8 +514,9 @@ function M:status(paths)
 end
 
 ---@param path string
+---@param exact boolean? Whether there's a pattern that matches the entire path, not just a segment of it.
 ---@return boolean? accepted
-function M:check(path)
+function M:check(path, exact)
   local root = self.options.root
   if root then
     if self:pathEqual(path:sub(1, #root), root) then
@@ -529,6 +528,19 @@ function M:check(path)
 
   if self.options.asGitIgnore then
     local paths = {}
+    if exact then
+      for p in path:gmatch("[^/\\]+") do
+        paths[#paths + 1] = p
+      end
+      local status = self:status(paths, exact)
+      if status == Statuses.ACCEPTED then
+        return true
+      elseif status == Statuses.REFUSED then
+        return false
+      end
+      return nil
+    end
+
     for p in path:gmatch("[^/\\]+") do
       paths[#paths + 1] = p
       local status = self:status(paths)
@@ -641,18 +653,18 @@ local function createGlob(pattern, options, interface)
     interface = {},
   }, M)
 
-  if type(options) == "table" then
-    for op, val in pairs(options) do
-      glob:setOption(op, val)
-    end
-  end
-
   if type(pattern) == "table" then
     for _, pat in ipairs(pattern) do
       glob:addPattern(pat)
     end
   elseif pattern then
     glob:addPattern(pattern)
+  end
+
+  if type(options) == "table" then
+    for op, val in pairs(options) do
+      glob:setOption(op, val)
+    end
   end
 
   if type(interface) == "table" then

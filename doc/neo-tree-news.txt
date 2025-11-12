@@ -1,0 +1,71 @@
+*neo-tree-news.txt*                                   News/changelog for |neo-tree|
+
+INTRODUCTION                                                *neo-tree-news-intro*
+
+This document contains a list of new features in v3, roughly documented by their
+introduction date.
+
+Roughly speaking this is an annotated output of this command:
+
+>bash
+  git --no-pager log --graph --abbrev-commit --decorate lg-basic
+  --format=format:'%C(auto)%h %C(bold green)(%as)%C(reset) %C(white)%s%C(reset)
+  %C(dim white)- %an%C(reset)%C(auto)%d%C(reset)' | rg feat
+<
+
+*v3*                                                            *neo-tree-news-3.x*
+
+e1d464a (2025-10-21) feat(clipboard): global/universal sync, clear_clipboard cmd (#1800) - pynappo
+96bb26d (2025-10-07) feat(common): option for filenames/icons to ignore filtered hls (#1887) - pynappo
+a9e56ca (2025-09-28) feat(help): custom sorter option for `show_help` command (#1867) - pynappo
+72485bf (2025-09-28) feat(filesystem): support .neotreeignore, .ignore, etc. (#1868) - pynappo
+05164ef (2025-07-17) feat(renderer): allow children of filtered to retain normal hls (#1822) - pynappo
+fba6d1f (2025-07-04) feat(preview): add snacks.image integration (#1815) - pynappo
+245effb (2025-06-30) feat(fuzzy_finder): normal mode controls, respect mapping config (#1788) - pynappo
+b287285 (2025-06-06) feat: git undo last commit, soft reset last commit (#1802) - Binoy Manoj
+8bfcc95 (2025-05-30) feat(health): show unchecked config fields on `:verbose` (#1797) - pynappo
+299e174 (2025-04-24) feat: add healthcheck (#1773) - pynappo
+b284329 (2025-04-23) feat(popup): support 'winborder' with `popup_border_style = ""` (#1744) - pynappo
+1ef260e (2025-04-17) feat: add `expand_all_subnodes` mapping (#1767) - pynappo (tag: 3.32)
+fbc0abe (2025-02-24) feat(commands): Add descending order_by_name support (#1697) - Zack Ruppert
+4adbc13 (2025-01-26) feat: add open_files_using_relative_paths option (#1634) - Epheien
+1fab54c (2025-01-24) feat(filesystem): add `BEFORE_FILE_{ADD/DELETE}` events (#1657) - pynappo
+d175a0c (2025-01-18) feat(filter): custom title (#1489) - Sander
+e741646 (2025-01-18) feat: add close to fuzzy_finder_mappings (#1568) - Adrien Biencourt
+891e3af (2025-01-18) feat(preview): custom `title` (#1563) - João Mendonça
+343886b (2025-01-13) feat(filesystem): customizable timestamp formats (#1614) - MastarCheeze
+ecf9ba5 (2024-12-24) feat: support desc for string command keymaps (#1414) - Brent Williams
+2d4094b (2024-12-22) feat(common): add `rename_basename` command (#1581) - Dat Vo
+d7266e4 (2024-12-16) feat: allow custom text format for `symlink_target` (#1438) - Thaumy
+395ce46 (2024-12-10) feat(filesystem): customisable column width (#1615) - ZH Chay
+28f1317 (2024-11-24) feat(popups): Add title formatting option (#1603) - Danny Wray
+0774fa2 (2024-09-05) feat: add `icon.provider` option to components for full control (#1527) - Micah Halter
+206241e (2024-06-11) feat: add options always_show_by_pattern (#1444) - Fritiof Rusck
+6e20108 (2024-05-15) feat(preview): Scroll Preview window command and bindings (#1470) - Aleksandr Vedeneev
+7aad1bf (2024-04-14) feat: support luarocks/rocks.nvim (#1434) - Marc Jakobi (tag: 3.25)
+6604275 (2024-04-06) feat: allow `set_root` command from any node (#1420) - xvzc
+54b622d (2024-04-06) feat: allow to pass function to fuzzy_finder_mappings (#1423) - ADoyle
+bce4540 (2024-03-06) feat(nui): allow callbacks in nui input with option (#1372) - takuto (tag: 3.19)
+df4cb47 (2024-01-30) feat(ui): use `vim.fn.comfirm` for non-popup confirmation prompts (#1328) - 飞
+e578fe7 (2024-01-21) feat: Add ability to hijack-cursor (#955) - Kasper Kondzielski (tag: 3.16)
+2f2d088 (2024-01-08) feat(filesystem): open in right below or left above split (#1294) - Andrei Kochemirovskii (tag: 3.15)
+f86e871 (2023-11-15) feat(filesystem): focus new node after copy / move in filesystem (#1228) - takuto
+f053f09 (2023-11-07) feat(commands): add option to open top file even when nested (#1218) - takuto (tag: 3.12)
+dcef81d (2023-10-28) feat(preview): use image.nvim to load images into preview window (#1203) - takuto
+2c78255 (2023-10-22) feat(sources): fix and test all `source.navigate` to have same nparams (#1195) - takuto
+bdf4ead (2023-10-22) feat(selector): add command option to toggle source selector (#1187) - takuto
+7d4494d (2023-10-22) feat: advanced file nesting with patterns (#1182) - Teddytrombone
+0cf20fa (2023-10-21) feat(input): add newline when `use_popups_for_input = false` (#1189) - takuto
+887a958 (2023-10-19) feat!: rename `label` to `desc` for mapping descriptions (#1190) - Micah Halter
+c49cd5e (2023-10-19) feat: custom text for mappings in help window (#1186) - Saltaformajo
+a73b92c (2023-09-24) feat(buffers): add `terminals_first` option (#1162) - cseickel
+e9edc00 (2023-09-15) feat!: ignore disabled diagnostics (#1148) - Jamie Macdonald
+fee5845 (2023-08-31) feat(command): add source `last` refers to the last executed source (#1081) - Yi Ming
+2c99276 (2023-08-27) feat: allow sources to register custom `stat_provider`s for nodes (#1121) - cseickel
+9b5b4c8 (2023-08-26) feat: add mapping and docs for `order_by_git_status` - Chris Seickel (tag: 3.5)
+0f22edc (2023-08-20) feat!: show file stats in columns, add sort commands (#1107) - cseickel
+cac2e1b (2023-08-12) feat(filesystem): improve default empty folder icons (#1101) - cseickel (tag: 3.2)
+38293fe (2023-08-06) feat(filesystem): show window immediately without waiting for async scan (#1015) - cseickel (upstream/1093-bug-follow-current-file-re-opens-neotree-even-though-i-close, origin/1093-bug-follow-current-file-re-opens-neotree-even-though-i-close)
+78d2616 (2023-07-14) feat!: remove deprecated user commands (#1055) - cseickel
+
+vim:tw=80:ts=2:et:ft=help:

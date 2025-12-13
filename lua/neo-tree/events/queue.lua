@@ -58,7 +58,7 @@ M.destroy_event = function(event_name)
   if existing.setup_was_run and type(existing.teardown) == "function" then
     local success, result = pcall(existing.teardown)
     if not success then
-      log.error("Error in teardown for", event_name, ":", result)
+      log.error("Error in teardown for", event_name, ":", result, debug.traceback())
     end
     existing.setup_was_run = false
   end
@@ -87,7 +87,7 @@ local fire_event_internal = function(event, args)
     elseif success then
       log.trace("Seed for", event, "returned falsy, cancelling event")
     else
-      log.error("Error in seed function for", event .. ": ", result)
+      log.error("Error in seed function for", event .. ": ", result, debug.traceback())
     end
   end
 
@@ -99,7 +99,13 @@ local fire_event_internal = function(event, args)
       if success then
         log.trace("Handler", id, "for", event, "called successfully.")
       else
-        log.at.error.format("Error in event handler for event %s[%s]: %s", event, id, result)
+        log.at.error.format(
+          "Error in event handler for event %s[%s]: %s",
+          event,
+          id,
+          result,
+          debug.traceback()
+        )
       end
       if event_handler.once then
         event_handler.cancelled = true
@@ -139,7 +145,7 @@ M.subscribe = function(event_handler)
         def.setup_was_run = true
         log.debug("Ran setup for event", event_handler.event)
       else
-        log.error("Error in setup for", event_handler.event, ":", result)
+        log.error("Error in setup for", event_handler.event, ":", result, debug.traceback())
       end
     end
     event_queues[event_handler.event] = queue

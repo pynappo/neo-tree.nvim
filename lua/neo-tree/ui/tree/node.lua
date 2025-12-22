@@ -9,11 +9,14 @@ local tracking_ns = api.nvim_create_namespace("neo-tree.ui.tree.tracking")
 ---@type table<integer, neotree.ui.TreeNode>
 local extmark_to_treenode = {}
 
-local next_id = 0
+---@class neotree.ui.tree.SourceOpts
+---@field on_redraw fun(node)
+---@field false fun(node)
 
 ---@param id string|integer
+---@param source_opts neotree.ui.tree.SourceOpts?
 ---@return neotree.ui.TreeNode
-function TreeNode:new(id)
+function TreeNode:new(id, source_opts)
   local o = {}
   setmetatable(o, {
     __index = self,
@@ -21,9 +24,9 @@ function TreeNode:new(id)
       return self.str(o)
     end,
   })
-  self.id = id or next_id
+  self.id = id
   self.text = tostring(self.id)
-  next_id = next_id + 1
+  self.source = source_opts
 
   self.opened = false
   return o
@@ -55,6 +58,7 @@ end
 
 ---@param buf integer
 function TreeNode:render(buf, start_line)
+  vim.b[buf].new_neotree_ui = true
   self:draw_at(start_line, buf)
 end
 
@@ -67,11 +71,9 @@ function TreeNode:draw_at(start_row, buf, end_row)
   local str = self:str()
   api.nvim_buf_set_lines(buf, start_row, start_row, true, { str })
 
-  local tracking_extmark = api.nvim_buf_set_extmark(buf, tracking_ns, start_row, 0, {
-    invalidate = true, -- make it obvious
-  })
-  extmark_to_treenode[tracking_extmark] = self
-  self.tracking_extmark = tracking_extmark
+  local tracking_extmark_id = api.nvim_buf_set_extmark(buf, tracking_ns, start_row, 0, {})
+  extmark_to_treenode[tracking_extmark_id] = self
+  self.tracking_extmark = tracking_extmark_id
 end
 
 ---@param buf integer
@@ -84,10 +86,6 @@ function TreeNode:update_text(buf, new_text)
 
   local extmark_details = vim.api.nvim_buf_get_extmark_by_id(buf, tracking_ns, extmark_id, {})
   local start_row = extmark_details[1]
-  if extmark_details[3].invalid then
-    vim.api.nvim_buf_del_extmark(buf, tracking_ns, extmark_id)
-    return
-  end
 
   local dmp = require("neo-tree.utils.diff-match-patch")
   local curline = api.nvim_buf_get_lines(buf, start_row, start_row + 1, true)
@@ -108,32 +106,32 @@ function TreeNode:update_text(buf, new_text)
 end
 
 ---@param line integer? Defaults to cursor line
+---@param buf integer? Defaults to cursor line
 ---@return neotree.ui.TreeNode? node
-function TreeNode.find_at_line(line)
-  local curbuf = vim.api.nvim_get_current_buf()
-  if not line then
-    local curpos = api.nvim_win_get_cursor(0)
-    line = curpos[1] - 1
-  end
+function TreeNode.find_at_line(line, buf)
+  buf = buf ~= 0 and buf or vim.api.nvim_get_current_buf()
+  line = line or (api.nvim_win_get_cursor(0)[1] - 1)
 
   local extmarks_found = api.nvim_buf_get_extmarks(
-    curbuf,
+    buf,
     tracking_ns,
     { line, 0 },
     { line, -1 },
     { details = true }
   )
-  local text_at_line = vim.api.nvim_buf_get_lines(curbuf, line, line + 1, true)[1]
+  local text_at_line = vim.api.nvim_buf_get_lines(buf, line, line + 1, true)[1]
   text_at_line = vim.trim(text_at_line)
+  if not text_at_line then
+    return nil
+  end
 
   local mindiff = math.huge
   local least_diff_node = nil
   local orig_len = #text_at_line
   for _, extmark in ipairs(extmarks_found) do
-    if extmark[4].invalid then
-      vim.print("invalid", extmark)
-    else
-      local node = assert(extmark_to_treenode[extmark[1]])
+    local id = extmark[1]
+    local node = extmark_to_treenode[id]
+    if node then
       local str = node:str()
       local diff = math.abs(orig_len - #str)
       if diff < mindiff then
@@ -176,6 +174,34 @@ local setup_split_buffer = function()
   return buf, root
 end
 
-setup_split_buffer()
+vim.api.nvim_create_user_command("NeotreeNew", function()
+  setup_split_buffer()
+end, {})
+
+local decoration_ns_id = api.nvim_create_namespace("neo-tree.ui.tree.decoration")
+api.nvim_set_decoration_provider(decoration_ns_id, {
+  on_start = function(_, tick) end,
+  on_buf = function(_, bufnr, tick) end,
+  on_win = function(_, winid, bufnr, top_row, bot_row)
+    return vim.b[bufnr].new_neotree_ui and true or false
+  end,
+  on_line = function(_, winid, bufnr, row)
+    local node = TreeNode.find_at_line(row, bufnr)
+    if not node then
+      vim.print("Could not find node at " .. row)
+      return
+    end
+    api.nvim_buf_set_extmark(bufnr, decoration_ns_id, row, 0, {
+      virt_text = {
+        {
+          "ephemeral for " .. node:str(),
+          "ErrorMsg",
+        },
+      },
+      ephemeral = true,
+    })
+  end,
+  -- on_range = function(_, winid, bufnr, begin_row, begin_col, end_row, end_col) end,
+})
 
 return TreeNode

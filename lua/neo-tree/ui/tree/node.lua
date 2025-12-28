@@ -14,8 +14,8 @@ local log = require("neo-tree.log")
 ---@field private _text string
 local TreeNode = {}
 
-local tracking_ns = vim.api.nvim_create_namespace("neo-tree.ui.tree.tracking")
-local started = false
+local tracking_ns_id = vim.api.nvim_create_namespace("neo-tree.ui.tree.tracking")
+local decoration_on_win = vim.api.nvim_create_namespace("neotree.ui.tree.decoration_on_win")
 
 ---@type table<integer, table<integer, neotree.ui.TreeNode>>
 local extmark_to_treenode = setmetatable({}, {
@@ -25,9 +25,11 @@ local extmark_to_treenode = setmetatable({}, {
   end,
 })
 local next_id = 0
+local bufs_with_treenode = {}
 
 ---@class neotree.ui.TreeNode.SourceOpts
----@field on_redraw fun(node: neotree.ui.TreeNode)
+---@field on_redraw_line fun(winid: integer, bufnr: integer, row: integer, node: neotree.ui.TreeNode)
+---@field on_redraw_win fun(winid: integer, bufnr: integer, top_row: integer, bot_row: integer, node: neotree.ui.TreeNode, extmark_info: vim.api.keyset.get_extmark_item)
 ---@field get_children fun(self: neotree.ui.TreeNode.SourceOpts, source_id: any):neotree.ui.TreeNode.Children[]?
 
 ---@param source_id any
@@ -62,8 +64,7 @@ function TreeNode:toggle()
 end
 
 function TreeNode:expand()
-  vim.print("expand", self)
-  if not self.children or (#self.children == 0 and not self.children.more) then
+  if not self.children then
     return
   end
 
@@ -114,7 +115,8 @@ function TreeNode:collapse()
     return
   end
 
-  vim.api.nvim_buf_clear_namespace(self.buf, tracking_ns, row + 1, row + 1 + linecount)
+  vim.api.nvim_buf_clear_namespace(self.buf, tracking_ns_id, row + 1, row + 1 + linecount)
+  vim.api.nvim_buf_clear_namespace(self.buf, decoration_on_win, row + 1, row + 1 + linecount)
   vim.api.nvim_buf_set_lines(self.buf, row + 1, row + 1 + linecount, false, {})
 end
 
@@ -123,7 +125,6 @@ end
 ---@param visible_descendants neotree.ui.TreeNode[]?
 ---@return neotree.ui.TreeNode[]? visible_descendants Nil if node cannot have children.
 function TreeNode:_get_descendants(visible_descendants)
-  vim.print("get descendants", self)
   if self.source and self.source.get_children then
     self.children = self.source:get_children(self.source_id)
   end
@@ -163,8 +164,10 @@ function TreeNode:draw_at(buf, start_row)
   buf = buf ~= 0 and buf or vim.api.nvim_get_current_buf()
   assert(not self.buf)
 
+  bufs_with_treenode[buf] = true
   vim.api.nvim_buf_set_lines(buf, start_row, start_row, true, { self:get_text(true) })
   self:_set_tracking_extmark_and_buf(buf, start_row)
+  vim.b[self.buf].new_neo_tree_ui = true
 end
 
 ---@private
@@ -177,7 +180,7 @@ function TreeNode:_set_tracking_extmark_and_buf(buf, start_row)
     end
   end
   self.buf = buf
-  local tracking_extmark_id = vim.api.nvim_buf_set_extmark(buf, tracking_ns, start_row, 0, {})
+  local tracking_extmark_id = vim.api.nvim_buf_set_extmark(buf, tracking_ns_id, start_row, 0, {})
   extmark_to_treenode[buf][tracking_extmark_id] = self
   self.tracking_extmark_id = tracking_extmark_id
   return tracking_extmark_id
@@ -189,7 +192,7 @@ end
 function TreeNode:_get_extmark_pos_and_details()
   local tuple = vim.api.nvim_buf_get_extmark_by_id(
     self.buf,
-    tracking_ns,
+    tracking_ns_id,
     assert(self.tracking_extmark_id),
     { details = false, hl_name = true }
   )
@@ -214,7 +217,8 @@ function TreeNode:set_text(new_text)
   end
 
   -- Apply minimal diff
-  local extmark_details = vim.api.nvim_buf_get_extmark_by_id(self.buf, tracking_ns, extmark_id, {})
+  local extmark_details =
+    vim.api.nvim_buf_get_extmark_by_id(self.buf, tracking_ns_id, extmark_id, {})
   local start_row = extmark_details[1]
 
   if not self.buf then
@@ -247,7 +251,7 @@ function TreeNode.find_at_line(line, buf)
 
   local extmarks_found = vim.api.nvim_buf_get_extmarks(
     buf,
-    tracking_ns,
+    tracking_ns_id,
     { line, 0 },
     { line, -1 },
     { details = true }
@@ -276,10 +280,11 @@ function TreeNode.find_at_line(line, buf)
   return least_diff_node
 end
 
-local decoration_ns_id = vim.api.nvim_create_namespace("neo-tree.ui.tree.decoration")
+local decoration_ns_id = vim.api.nvim_create_namespace("neo-tree.ui.tree.decoration_ephemeral")
 vim.api.nvim_set_decoration_provider(decoration_ns_id, {
   on_start = function(_, tick)
-    if not started then
+    local k, v = next(bufs_with_treenode)
+    if not v then
       return false
     end
   end,
@@ -291,7 +296,7 @@ vim.api.nvim_set_decoration_provider(decoration_ns_id, {
     end
     local treenode_extmarks = vim.api.nvim_buf_get_extmarks(
       bufnr,
-      tracking_ns,
+      tracking_ns_id,
       { top_row, 1 },
       { bot_row, -1 },
       {
@@ -301,23 +306,29 @@ vim.api.nvim_set_decoration_provider(decoration_ns_id, {
     if #treenode_extmarks == 0 then
       return false
     end
+    for i, extmark in ipairs(treenode_extmarks) do
+      local id = extmark[1]
+      local node = extmark_to_treenode[bufnr][id]
+      if node and node.source and node.source.on_redraw_win then
+        node.source.on_redraw_win(winid, bufnr, top_row, bot_row, node, extmark)
+      end
+    end
   end,
   on_line = function(_, winid, bufnr, row)
     local node = TreeNode.find_at_line(row, bufnr)
     if not node then
       return
     end
-    vim.api.nvim_buf_set_extmark(bufnr, decoration_ns_id, row, 0, {
-      virt_text = {
-        {
-          "ephemeral for " .. node:get_text(),
-          "ErrorMsg",
-        },
-      },
-      ephemeral = true,
-    })
+    if node.source and node.source.on_redraw_line then
+      node.source.on_redraw_line(winid, bufnr, row, node)
+    end
   end,
-  -- on_range = function(_, winid, bufnr, begin_row, begin_col, end_row, end_col) end,
 })
+
+TreeNode.namespaces = {
+  tracking = tracking_ns_id,
+  decoration_ephemeral = decoration_ns_id,
+  decoration_on_win = decoration_on_win,
+}
 
 return TreeNode
